@@ -1,0 +1,80 @@
+{
+  "llama-server": {
+    "versions": {
+      "1.0.0": {
+        "command": "apt-get update && apt-get install -y curl && curl -L -s https://github.com/ggerganov/llama.cpp/releases/download/b3164/llama-b3164-bin-ubuntu-x64.zip -o /tmp/llama.zip || echo 'Offline build fallback' && mkdir -p /usr/local/bin",
+        "env": {
+          "LLAMA_VERSION": "1.0.0"
+        }
+      },
+      "2.0.0": {
+        "command": "apt-get update && apt-get install -y curl && curl -L -s https://github.com/ggerganov/llama.cpp/releases/download/b3200/llama-b3200-bin-ubuntu-x64.zip -o /tmp/llama.zip || echo 'Offline build fallback' && mkdir -p /usr/local/bin",
+        "env": {
+          "LLAMA_VERSION": "2.0.0"
+        }
+      }
+    },
+    "default_version": "1.0.0"
+  },
+  "nodejs": {
+    "versions": {
+      "18.0.0": {
+        "command": "curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt-get install -y nodejs",
+        "env": {
+          "NODE_VERSION": "18.0.0"
+        }
+      },
+      "20.0.0": {
+        "command": "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs",
+        "env": {
+          "NODE_VERSION": "20.0.0"
+        }
+      }
+    },
+    "default_version": "20.0.0"
+  },
+  "python-pkgs": {
+    "versions": {
+      "1.0.0": {
+        "command": "pip3 install numpy pandas requests",
+        "env": {
+          "PYTHON_PKG_PRESET": "data-science-v1"
+        }
+      }
+    },
+    "default_version": "1.0.0"
+  },
+  "curl": {
+    "versions": {
+      "latest": {
+        "command": "apt-get update && apt-get install -y curl",
+        "env": {
+          "CURL_VERSION": "latest"
+        }
+      }
+    },
+    "default_version": "latest"
+  },
+  "zstd": {
+    "versions": {
+      "latest": {
+        "command": "apt-get update && apt-get install -y zstd",
+        "env": {
+          "ZSTD_VERSION": "latest"
+        }
+      }
+    },
+    "default_version": "latest"
+  },
+  "ollama": {
+    "versions": {
+      "latest": {
+        "command": "curl -fsSL https://ollama.com/install.sh | sh",
+        "env": {
+          "OLLAMA_VERSION": "latest"
+        }
+      }
+    },
+    "default_version": "latest"
+  }
+}

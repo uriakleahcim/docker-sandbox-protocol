@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "actions": {
+    "ensure_dir": {
+      "script": "ensure_dir.sh",
+      "allowed_phases": ["host_prepare"],
+      "runs_on": "host",
+      "risk": "host_fs_write",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["path"],
+      "optional": ["mode", "owner", "group"],
+      "arg_schema": {
+        "path": {
+          "type": "string",
+          "must_be_absolute": true
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^[0-7]{3,4}$"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        }
+      }
+    },
+    "require_mount": {
+      "script": "require_mount.sh",
+      "allowed_phases": ["host_prepare"],
+      "runs_on": "host",
+      "risk": "host_fs_read",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["path"],
+      "optional": ["must_be_writable"],
+      "arg_schema": {
+        "path": {
+          "type": "string",
+          "must_be_absolute": true
+        },
+        "must_be_writable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "require_file": {
+      "script": "require_file.sh",
+      "allowed_phases": ["host_prepare"],
+      "runs_on": "host",
+      "risk": "host_fs_read",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["path"],
+      "optional": [],
+      "arg_schema": {
+        "path": {
+          "type": "string",
+          "must_be_absolute": true
+        }
+      }
+    },
+    "install_preset": {
+      "script": "install_preset.sh",
+      "allowed_phases": ["image_prepare"],
+      "runs_on": "builder",
+      "risk": "image_mutation",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["name"],
+      "optional": ["version"],
+      "arg_schema": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "shell": {
+      "script": "shell.sh",
+      "allowed_phases": ["container_startup", "shutdown"],
+      "runs_on": "container",
+      "risk": "container_exec",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["command"],
+      "optional": ["timeout_seconds"],
+      "arg_schema": {
+        "command": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "http_check": {
+      "script": "http_check.sh",
+      "allowed_phases": ["healthcheck"],
+      "runs_on": "host",
+      "risk": "network_check",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["url"],
+      "optional": ["expect_status", "timeout_seconds"],
+      "arg_schema": {
+        "url": {
+          "type": "string"
+        },
+        "expect_status": {
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "echo": {
+      "script": "echo.sh",
+      "allowed_phases": ["host_prepare", "image_prepare", "container_startup", "healthcheck", "shutdown"],
+      "runs_on": "host",
+      "risk": "host_fs_read",
+      "requires_confirmation": false,
+      "requires_mfa": false,
+      "required": ["lines"],
+      "optional": [],
+      "arg_schema": {
+        "lines": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}

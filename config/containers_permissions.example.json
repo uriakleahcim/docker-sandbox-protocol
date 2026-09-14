@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "user": "agent",
+  "rules": [
+    {
+      "path": "~/sandbox/workspace/**",
+      "permissions": [
+        "read",
+        "write",
+        "create",
+        "delete",
+        "list",
+        "execute"
+      ]
+    },
+    {
+      "path": "~/sandbox/scratch/**",
+      "permissions": [
+        "read",
+        "write",
+        "create",
+        "delete",
+        "list",
+        "execute"
+      ]
+    },
+    {
+      "path": "~/**",
+      "permissions": []
+    },
+    {
+      "path": "~/.ssh/**",
+      "permissions": []
+    }
+  ]
+}

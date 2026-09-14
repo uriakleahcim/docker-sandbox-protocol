@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "containers": [
+    {
+      "name": "dev-sandbox",
+      "enabled": true,
+      "cpu_limit": 4.0,
+      "memory_limit": "8g",
+      "workspace_path": "~/sandbox/workspace/dev",
+      "scratch_path": "~/sandbox/scratch/dev",
+      "network": {
+        "host_access": {
+          "enabled": true,
+          "allowed_ports": [3000, 8080],
+          "allowed_hosts": ["host.docker.internal"],
+          "published_port_scope": "public"
+        },
+        "external_access": ["*"],
+        "container_access": ["*"]
+      },
+      "security": {
+        "allow_sudo": true,
+        "allow_google_auth": false
+      },
+      "toggle_logging": true,
+      "lifecycle": {
+        "host_prepare": [
+          {
+            "@action": "ensure_dir",
+            "path": "~/sandbox/workspace/dev"
+          },
+          {
+            "@action": "ensure_dir",
+            "path": "~/sandbox/scratch/dev"
+          }
+        ],
+        "container_startup": {
+          "behavior": "NEVER",
+          "steps": [
+            {
+              "@action": "echo",
+              "lines": [
+                "Development workspace initialized.",
+                "Ready for user connections."
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "restricted-agent",
+      "enabled": true,
+      "cpu_limit": 2.0,
+      "memory_limit": "4g",
+      "workspace_path": "~/sandbox/workspace/restricted",
+      "scratch_path": "~/sandbox/scratch/restricted",
+      "network": {
+        "host_access": {
+          "enabled": true,
+          "allowed_ports": [],
+          "allowed_hosts": ["host.docker.internal"],
+          "published_port_scope": "loopback"
+        },
+        "external_access": [
+          "*.github.com",
+          "pypi.org",
+          "*.pypi.org"
+        ],
+        "container_access": ["*"]
+      },
+      "security": {
+        "allow_sudo": false,
+        "allow_google_auth": false
+      },
+      "toggle_logging": true,
+      "lifecycle": {
+        "container_startup": {
+          "behavior": "NEVER",
+          "steps": [
+            {
+              "@action": "echo",
+              "lines": [
+                "Restricted agent container initialized with domain egress whitelist."
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "ai-service",
+      "enabled": true,
+      "cpu_limit": 4.0,
+      "memory_limit": "8g",
+      "workspace_path": "~/sandbox/workspace/ai",
+      "scratch_path": "~/sandbox/scratch/ai",
+      "requirements": ["llama-server ~1.0"],
+      "network": {
+        "host_access": {
+          "enabled": true,
+          "allowed_ports": [8080],
+          "allowed_hosts": ["host.docker.internal"],
+          "published_port_scope": "loopback"
+        },
+        "external_access": [],
+        "container_access": ["*"]
+      },
+      "security": {
+        "allow_sudo": false,
+        "allow_google_auth": false
+      },
+      "toggle_logging": true,
+      "lifecycle": {
+        "container_startup": {
+          "behavior": "ALWAYS",
+          "steps": [
+            {
+              "@action": "echo",
+              "lines": [
+                "Starting local AI inference service on port 8080..."
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "web-stack",
+      "enabled": false,
+      "compose_path": "~/sandbox/compose/docker-compose.yml",
+      "cpu_limit": 2.0,
+      "memory_limit": "4g",
+      "workspace_path": "~/sandbox/workspace/web-stack",
+      "scratch_path": "~/sandbox/scratch/web-stack",
+      "network": {
+        "host_access": {
+          "enabled": true,
+          "allowed_ports": [80, 443],
+          "allowed_hosts": ["host.docker.internal"],
+          "published_port_scope": "public"
+        },
+        "external_access": ["*"],
+        "container_access": ["*"]
+      },
+      "security": {
+        "allow_sudo": false,
+        "allow_google_auth": false
+      },
+      "toggle_logging": true,
+      "lifecycle": {
+        "host_prepare": [
+          {
+            "@action": "ensure_dir",
+            "path": "~/sandbox/data/web"
+          }
+        ]
+      }
+    }
+  ]
+}

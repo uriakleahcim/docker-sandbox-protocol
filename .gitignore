@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Active configuration files (keep *.example.json tracked!)
+config/containers_settings.json
+config/container_groupings.json
+config/agent_secrets_vault.json
+config/containers_permissions.json
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime databases
+*.log
+/tmp/sandbox*
+
+# Editor / IDE artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

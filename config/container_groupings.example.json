@@ -1,0 +1,28 @@
+{
+  "container_groupings": {
+    "development": {
+      "containers": ["dev-sandbox", "restricted-agent"],
+      "default_container": "dev-sandbox",
+      "naming": {
+        "prefix": "dev-",
+        "suffix": ""
+      }
+    },
+    "ai": {
+      "containers": ["ai-service"],
+      "default_container": "ai-service",
+      "naming": {
+        "prefix": "ai-",
+        "suffix": ""
+      }
+    },
+    "services": {
+      "containers": ["web-stack"],
+      "default_container": "web-stack",
+      "naming": {
+        "prefix": "",
+        "suffix": ""
+      }
+    }
+  }
+}

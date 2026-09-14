@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Entrypoint launcher for Docker Sandbox Protocol CLI
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+export SANDBOX_ROOT="$REPO_ROOT"
+export SANDBOX_CONFIG_DIR="$REPO_ROOT/config"
+
+exec python3 "$REPO_ROOT/config/containers_cli.py" "$@"
