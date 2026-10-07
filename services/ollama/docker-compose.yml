@@ -1,0 +1,41 @@
+# Shared, loopback-only Ollama service for local agent workloads.
+# Its runtime cache is supplied by the active Sandbox declaration; no source
+# checkout owns models or model metadata.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ${OLLAMA_RUNTIME_ROOT:?OLLAMA_RUNTIME_ROOT must be set by Sandbox Protocol}:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  # The initializer is idempotent: existing model blobs are verified/reused.
+  ollama-model-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      ollama pull qwen2.5:3b-instruct
+      ollama pull qwen2.5:1.5b-instruct
+      ollama pull nomic-embed-text:v1.5
+    restart: "no"
+
+networks:
+  default:
+    name: agent-services

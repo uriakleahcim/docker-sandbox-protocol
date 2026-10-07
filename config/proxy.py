@@ -10,7 +10,8 @@ import sys
 # Dynamically resolve paths
 REAL_DIR = os.path.dirname(os.path.realpath(__file__))
 CONFIG_DIR = os.environ.get("SANDBOX_CONFIG_DIR", REAL_DIR)
-RULES_FILE = os.environ.get("SANDBOX_PROXY_RULES", "/tmp/sandbox_proxy_rules.json")
+RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+RULES_FILE = os.environ.get("SANDBOX_PROXY_RULES", os.path.join(RUNTIME_DIR, "sandbox_proxy_rules.json"))
 
 GROUPINGS_FILE = os.path.join(CONFIG_DIR, "container_groupings.json")
 if not os.path.exists(GROUPINGS_FILE):

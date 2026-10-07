@@ -27,13 +27,23 @@ A standard deployment organizes files into dedicated functional tiers:
 
 ---
 
-## 3. The Unprivileged Agent Sandbox User
+## 3. Container Runtime Identity
 
-The container runtime executes under an unprivileged user named `agent` (UID `1001`, GID `1001` by default).
+The generated base image executes under an unprivileged user named `agent`
+(UID `1001`, GID `1001` by default). External images retain their declared
+runtime identity unless `security.run_as_user` overrides it.
 
 * **UID Alignment:** Running UID `1001` allows clean POSIX ACL permissions mapping between the host and containers without file ownership collisions.
 * **Shell Backdoor Prevention:** Because the host user's home directory is read-only or inaccessible to the container UID, agents cannot inject malicious scripts into `.bashrc`, `.profile`, or `.ssh/authorized_keys`.
-* **Zero Privilege Escalation:** When `security.allow_sudo` is `false`, the orchestrator binds `/dev/null` over `/usr/bin/sudo`, making privilege escalation mechanically impossible inside the container.
+* **Runtime User Pinning:** `security.run_as_user` maps to Docker's `--user` option and should name a UID/GID supported by the selected image and its writable mounts.
+* **Capability Reduction:** `security.cap_drop` removes Linux capabilities from the container; `["ALL"]` is the preferred baseline when the application does not need any capabilities.
+* **No New Privileges:** `security.no_new_privileges` maps to Docker's `no-new-privileges` security option.
+* **Sudo Neutralization:** When `security.allow_sudo` is `false`, the orchestrator binds `/dev/null` over `/usr/bin/sudo`. This removes the executable but does not make an image non-root; use `run_as_user` for that guarantee.
+
+The harness can be pinned to an existing Docker context by setting
+`SANDBOX_DOCKER_CONTEXT`. It exports the corresponding `DOCKER_CONTEXT` value
+to all Docker subprocesses and lifecycle scripts. This supports a dedicated
+rootless daemon without changing the user's global Docker context.
 
 ---
 
@@ -67,6 +77,13 @@ Each container definition supports five execution phases:
 4. **`healthcheck`:** Runs verification checks on the host post-boot (e.g., verifying an HTTP endpoint via `http_check`).
 5. **`shutdown`:** Executes teardown hooks before container destruction.
 
+For Compose-backed targets, `compose_env_files` is an ordered list of
+environment files passed directly to Compose during launch, stop, and log
+operations. It is the appropriate mechanism for credentials that must be
+available for Compose interpolation but must not be copied into the Sandbox
+configuration. `compose_env_file` remains supported as the single-file form;
+the two fields are mutually exclusive.
+
 ---
 
 ## 6. Dynamic Presets Engine (`presets/presets.json`)
@@ -86,3 +103,11 @@ Containers are grouped into logical identity classes (`container_groupings.json`
 - Dynamic naming rules (e.g. prefix `agent-`, suffix `.v1`).
 - Bulk targeting (`sandbox start *`, `sandbox stop g {group1,group2}`).
 - Single entrypoint interactive shells (`sandbox enter <name>`).
+
+Per-container commands use the separate `sandbox in c` namespace:
+
+- `sandbox in c <name>` lists the configured `open` and `run` selectors without contacting Docker.
+- `sandbox in c <name> open <target>` opens only a configured HTTP(S) URL or existing host file with `xdg-open`.
+- `sandbox in c <name> run <function> [args...]` passes a configured argument vector directly to `docker exec`; no shell command text is evaluated.
+- The selector `.` resolves the operation's `default` object. Default objects name a target or function, append their configured `args`, and reject caller arguments unless `allow_user_args` is explicitly true. The selected entry must also set `allow_args` to accept caller arguments.
+- `run` and any `open` target with `requires_running: true` fail cleanly unless the configured container is running and Docker is available.

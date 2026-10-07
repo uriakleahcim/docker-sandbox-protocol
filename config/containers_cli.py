@@ -6,6 +6,7 @@ import json
 import pwd
 import shutil
 import socket
+from urllib.parse import urlparse
 
 # Dynamically resolve root and configuration paths
 REAL_FILE = os.path.realpath(__file__)
@@ -23,10 +24,17 @@ SETTINGS_FILE = os.environ.get("SANDBOX_SETTINGS_FILE", os.path.join(CONFIG_DIR,
 SETTINGS_EXAMPLE_FILE = os.path.join(CONFIG_DIR, "containers_settings.example.json")
 DOCKERFILE = os.path.join(CONFIG_DIR, "Dockerfile")
 IMAGE_NAME = os.environ.get("SANDBOX_IMAGE_NAME", "agent-sandbox")
-RULES_FILE = os.environ.get("SANDBOX_PROXY_RULES", "/tmp/sandbox_proxy_rules.json")
+RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+RULES_FILE = os.environ.get("SANDBOX_PROXY_RULES", os.path.join(RUNTIME_DIR, "sandbox_proxy_rules.json"))
 GROUPINGS_FILE = os.environ.get("SANDBOX_GROUPINGS_FILE", os.path.join(CONFIG_DIR, "container_groupings.json"))
 GROUPINGS_EXAMPLE_FILE = os.path.join(CONFIG_DIR, "container_groupings.example.json")
 PRESETS_FILE = os.environ.get("SANDBOX_PRESETS_FILE", os.path.join(ROOT_DIR, "presets", "presets.json"))
+
+# Allow the harness to pin every Docker subprocess (including lifecycle
+# scripts) to a dedicated context without changing the user's global context.
+SANDBOX_DOCKER_CONTEXT = os.environ.get("SANDBOX_DOCKER_CONTEXT")
+if SANDBOX_DOCKER_CONTEXT:
+    os.environ["DOCKER_CONTEXT"] = SANDBOX_DOCKER_CONTEXT
 
 # Colors for premium visual formatting
 GREEN = "\033[92m"
@@ -85,6 +93,47 @@ def get_compose_bin():
         if os.path.exists(fb):
             return fb
     return "docker-compose"
+
+
+def get_compose_env_files(agent):
+    """Return ordered Compose environment files without loading them into the CLI."""
+    single_file = agent.get("compose_env_file")
+    multiple_files = agent.get("compose_env_files")
+    if single_file is not None and multiple_files is not None:
+        print(f"{RED}❌ Error: '{agent.get('name')}' cannot set both compose_env_file and compose_env_files.{RESET}")
+        return False
+    if multiple_files is not None:
+        if not isinstance(multiple_files, list) or not multiple_files:
+            print(f"{RED}❌ Error: compose_env_files for '{agent.get('name')}' must be a non-empty path list.{RESET}")
+            return False
+        env_files = multiple_files
+    elif single_file is not None:
+        env_files = [single_file]
+    else:
+        return []
+
+    resolved_files = []
+    for env_file in env_files:
+        if not isinstance(env_file, str) or not env_file:
+            print(f"{RED}❌ Error: every Compose environment file for '{agent.get('name')}' must be a path string.{RESET}")
+            return False
+        env_file = expand_path(env_file)
+        if not os.path.isfile(env_file):
+            print(f"{RED}❌ Error: Compose env file '{env_file}' not found.{RESET}")
+            return False
+        resolved_files.append(env_file)
+    return resolved_files
+
+
+def get_compose_environment(agent):
+    """Merge declared non-secret Compose variables into the process environment."""
+    declared = agent.get("environment", {})
+    if not isinstance(declared, dict):
+        print(f"{RED}❌ Error: environment for '{agent.get('name')}' must be an object.{RESET}")
+        return False
+    environment = os.environ.copy()
+    environment.update({str(key): str(value) for key, value in declared.items()})
+    return environment
 
 def execute_lifecycle_step(phase, step, container_name=None):
     registry = lifecycle_action_validator.load_registry()
@@ -348,6 +397,277 @@ def is_container_running(container_name):
 def is_container_exists(container_name):
     res = subprocess.run(["docker", "ps", "-a", "--filter", f"name={container_name}", "--format", "{{.Names}}"], capture_output=True, text=True)
     return container_name in res.stdout.splitlines()
+
+def get_docker_unavailable_reason():
+    """Return a user-facing reason when the Docker daemon cannot be queried."""
+    try:
+        res = subprocess.run(
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return "Docker CLI is not installed or is not available in PATH."
+    except OSError as exc:
+        return f"Unable to execute the Docker CLI: {exc}"
+
+    if res.returncode == 0:
+        return None
+
+    detail = res.stderr.strip() or res.stdout.strip()
+    return detail or f"Docker exited with status {res.returncode}."
+
+class ConfiguredCommandError(ValueError):
+    """Raised when a configured per-container command cannot be resolved."""
+
+
+def _configured_argv(value, field_name):
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(arg, str) or not arg for arg in value):
+        raise ConfiguredCommandError(f"'{field_name}' must be a list of non-empty strings.")
+    return list(value)
+
+
+def resolve_configured_invocation(agent, operation, selector, user_args):
+    """Resolve a named or default open/run invocation without invoking a shell."""
+    schema = {
+        "open": ("targets", "target"),
+        "run": ("functions", "function"),
+    }
+    if operation not in schema:
+        raise ConfiguredCommandError(f"Unsupported container operation '{operation}'.")
+
+    entries_key, reference_key = schema[operation]
+    command_section = agent.get("commands", {}).get(operation)
+    if not isinstance(command_section, dict):
+        raise ConfiguredCommandError(
+            f"Container '{agent.get('name', '<unnamed>')}' has no configured '{operation}' commands."
+        )
+
+    default_args = []
+    is_default = selector == "."
+    if is_default:
+        default = command_section.get("default")
+        if not isinstance(default, dict):
+            raise ConfiguredCommandError(
+                f"Container '{agent.get('name', '<unnamed>')}' has no advanced '{operation}' default."
+            )
+        selected_name = default.get(reference_key)
+        if not isinstance(selected_name, str) or not selected_name:
+            raise ConfiguredCommandError(
+                f"'{operation}.default.{reference_key}' must name a configured {reference_key}."
+            )
+        default_args = _configured_argv(default.get("args"), f"{operation}.default.args")
+        allow_user_args = default.get("allow_user_args", False)
+        if not isinstance(allow_user_args, bool):
+            raise ConfiguredCommandError(
+                f"'{operation}.default.allow_user_args' must be true or false."
+            )
+    else:
+        selected_name = selector
+        allow_user_args = None
+
+    entries = command_section.get(entries_key)
+    if not isinstance(entries, dict):
+        raise ConfiguredCommandError(f"'{operation}.{entries_key}' must be an object.")
+    entry = entries.get(selected_name)
+    if not isinstance(entry, dict):
+        raise ConfiguredCommandError(
+            f"Configured {reference_key} '{selected_name}' was not found for '{operation}'."
+        )
+
+    entry_allow_args = entry.get("allow_args", False)
+    if not isinstance(entry_allow_args, bool):
+        raise ConfiguredCommandError(
+            f"'{operation}.{entries_key}.{selected_name}.allow_args' must be true or false."
+        )
+
+    caller_args_allowed = entry_allow_args and (allow_user_args if is_default else True)
+    if user_args and not caller_args_allowed:
+        invocation_name = "default invocation" if is_default else f"{reference_key} '{selected_name}'"
+        raise ConfiguredCommandError(
+            f"The {operation} {invocation_name} does not allow caller-supplied arguments."
+        )
+
+    entry_args = _configured_argv(
+        entry.get("args"), f"{operation}.{entries_key}.{selected_name}.args"
+    )
+    return selected_name, entry, entry_args + default_args + list(user_args)
+
+
+def print_configured_command_catalog(agent):
+    """Print the selectors exposed by one container's command configuration."""
+    agent_name = agent.get("name", "<unnamed>")
+    commands = agent.get("commands")
+    print_header(f"CONFIGURED COMMANDS: {agent_name}")
+
+    if not isinstance(commands, dict):
+        print(f"{YELLOW}No configured commands are available for this container.{RESET}")
+        return
+
+    found_commands = False
+    schema = {
+        "open": ("targets", "target"),
+        "run": ("functions", "function"),
+    }
+    for operation, (entries_key, reference_key) in schema.items():
+        section = commands.get(operation)
+        if not isinstance(section, dict):
+            continue
+        entries = section.get(entries_key)
+        if not isinstance(entries, dict) or not entries:
+            continue
+
+        found_commands = True
+        print(f"{BOLD}{operation.upper()} selectors{RESET}")
+
+        default = section.get("default")
+        if isinstance(default, dict):
+            default_name = default.get(reference_key)
+            if isinstance(default_name, str) and default_name:
+                default_entry = entries.get(default_name, {})
+                caller_args = bool(
+                    default.get("allow_user_args", False)
+                    and isinstance(default_entry, dict)
+                    and default_entry.get("allow_args", False)
+                )
+                configured_args = default.get("args", [])
+                configured_count = len(configured_args) if isinstance(configured_args, list) else 0
+                details = [f"default → {default_name}"]
+                if configured_count:
+                    details.append(f"{configured_count} configured arg(s)")
+                details.append(f"caller args: {'yes' if caller_args else 'no'}")
+                print(f"  {BOLD}{'.':<14}{RESET} {'; '.join(details)}")
+
+        for entry_name, entry in entries.items():
+            if not isinstance(entry_name, str) or not isinstance(entry, dict):
+                continue
+            details = []
+            if operation == "open":
+                target_type = entry.get("type")
+                if target_type in ["url", "file"]:
+                    details.append(target_type)
+            details.append(f"caller args: {'yes' if entry.get('allow_args', False) else 'no'}")
+            description = entry.get("description")
+            if isinstance(description, str) and description.strip():
+                details.append(description.strip())
+            print(f"  {BOLD}{entry_name:<14}{RESET} {'; '.join(details)}")
+
+        print(f"  Call with: sandbox in c {agent_name} {operation} <selector> [args...]\n")
+
+    if not found_commands:
+        print(f"{YELLOW}No configured commands are available for this container.{RESET}")
+
+
+def do_in(args):
+    """Execute a configured command in the `sandbox in c ...` namespace."""
+    usage = "sandbox in c <container> [<open|run> <selector> [args...]]"
+    if len(args) < 2:
+        print(f"{RED}❌ Error: Missing configured-command arguments. Usage: {usage}{RESET}")
+        return 1
+
+    scope, agent_name, *request = args
+    if scope.lower() not in ["c", "container"]:
+        if scope.lower() in ["g", "group"]:
+            print(f"{RED}❌ Error: Group-scoped configured commands are not supported yet.{RESET}")
+        else:
+            print(f"{RED}❌ Error: Unknown scope '{scope}'. Use 'c' for a container.{RESET}")
+        return 1
+
+    settings = load_settings()
+    agent = get_container_config(settings, agent_name)
+    if not agent:
+        print(f"{RED}❌ Error: Container '{agent_name}' is not defined in containers_settings.json.{RESET}")
+        return 1
+
+    if not request:
+        print_configured_command_catalog(agent)
+        return 0
+    if len(request) < 2:
+        print(f"{RED}❌ Error: Missing selector. Usage: {usage}{RESET}")
+        return 1
+
+    operation, selector, *user_args = request
+    operation = operation.lower()
+
+    try:
+        selected_name, entry, invocation_args = resolve_configured_invocation(
+            agent, operation, selector, user_args
+        )
+    except ConfiguredCommandError as exc:
+        print(f"{RED}❌ Error: {exc}{RESET}")
+        return 1
+
+    container_name = resolve_container_name(agent_name)
+    requires_running = operation == "run" or entry.get("requires_running", False)
+    if not isinstance(requires_running, bool):
+        print(f"{RED}❌ Error: '{operation}' requires_running must be true or false.{RESET}")
+        return 1
+
+    if requires_running:
+        docker_error = get_docker_unavailable_reason()
+        if docker_error:
+            print(f"{RED}❌ Docker unavailable: {docker_error}{RESET}")
+            return 1
+        if not is_container_running(container_name):
+            print(f"{RED}❌ Error: Container '{container_name}' is not running.{RESET}")
+            return 1
+
+    if operation == "run":
+        try:
+            argv = _configured_argv(
+                entry.get("argv"), f"run.functions.{selected_name}.argv"
+            )
+        except ConfiguredCommandError as exc:
+            print(f"{RED}❌ Error: {exc}{RESET}")
+            return 1
+        if not argv:
+            print(f"{RED}❌ Error: Configured function '{selected_name}' has no argv.{RESET}")
+            return 1
+        try:
+            return subprocess.run(
+                ["docker", "exec", container_name, *argv, *invocation_args]
+            ).returncode
+        except OSError as exc:
+            print(f"{RED}❌ Error: Could not execute configured function '{selected_name}': {exc}{RESET}")
+            return 1
+
+    target_type = entry.get("type")
+    target_value = entry.get("value")
+    if target_type == "url":
+        parsed = urlparse(target_value) if isinstance(target_value, str) else None
+        if not parsed or parsed.scheme not in ["http", "https"] or not parsed.netloc:
+            print(f"{RED}❌ Error: Open target '{selected_name}' must use an http or https URL.{RESET}")
+            return 1
+        resolved_target = target_value
+    elif target_type == "file":
+        if not isinstance(target_value, str) or not target_value:
+            print(f"{RED}❌ Error: Open target '{selected_name}' has no file path.{RESET}")
+            return 1
+        resolved_target = expand_path(target_value)
+        if not os.path.exists(resolved_target):
+            print(f"{RED}❌ Error: Open target file does not exist: {resolved_target}{RESET}")
+            return 1
+    else:
+        print(f"{RED}❌ Error: Open target '{selected_name}' must have type 'url' or 'file'.{RESET}")
+        return 1
+
+    opener = shutil.which("xdg-open")
+    if not opener:
+        print(f"{RED}❌ Error: xdg-open is not available on this host.{RESET}")
+        return 1
+    try:
+        subprocess.Popen(
+            [opener, *invocation_args, resolved_target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        print(f"{RED}❌ Error: Could not open configured target '{selected_name}': {exc}{RESET}")
+        return 1
+    return 0
 
 def get_container_ip(container_name):
     res = subprocess.run(["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container_name], capture_output=True, text=True)
@@ -617,6 +937,24 @@ def parse_network_settings(agent):
         
     return allow_host, allow_external, allow_containers, ports_to_bind
 
+def append_runtime_security_options(cmd, security_config):
+    """Append declarative Docker runtime hardening options to a run command."""
+    run_as_user = security_config.get("run_as_user")
+    if run_as_user is not None and str(run_as_user).strip():
+        cmd += ["--user", str(run_as_user)]
+
+    cap_drop = security_config.get("cap_drop", [])
+    if isinstance(cap_drop, str):
+        cap_drop = [cap_drop]
+    for capability in cap_drop:
+        if str(capability).strip():
+            cmd += ["--cap-drop", str(capability)]
+
+    if security_config.get("no_new_privileges", False):
+        cmd += ["--security-opt", "no-new-privileges=true"]
+
+    return cmd
+
 def start_agent(agent):
     name = agent.get("name")
     container_name = resolve_container_name(name)
@@ -648,10 +986,20 @@ def start_agent(agent):
             print(f"{GREEN}🟢 Container '{container_name}' is already running via Compose.{RESET}")
             return
             
+        compose_env_files = get_compose_env_files(agent)
+        if compose_env_files is False:
+            return
+        compose_environment = get_compose_environment(agent)
+        if compose_environment is False:
+            return
         print(f"{GREEN}🚀 Starting native Docker Compose stack from '{compose_path}'...{RESET}")
         compose_bin = get_compose_bin()
-            
-        res = subprocess.run([compose_bin, "-f", compose_path, "up", "-d"])
+        compose_cmd = [compose_bin]
+        for compose_env_file in compose_env_files:
+            compose_cmd += ["--env-file", compose_env_file]
+        res = subprocess.run(
+            [*compose_cmd, "-f", compose_path, "up", "-d"], env=compose_environment
+        )
         if res.returncode == 0:
             print(f"🎉 {GREEN}Docker Compose stack successfully launched!{RESET}")
             run_healthchecks(agent, container_name)
@@ -775,6 +1123,8 @@ def start_agent(agent):
     security_config = agent.get("security", {})
     allow_sudo = security_config.get("allow_sudo", agent.get("toggle_sudo", False))
     allow_google_auth = security_config.get("allow_google_auth", agent.get("toggle_google_auth", False))
+
+    append_runtime_security_options(cmd, security_config)
     
     if not allow_host and not allow_external:
         cmd += ["--network", "none"]
@@ -854,10 +1204,18 @@ def stop_agent(agent):
         if not os.path.exists(compose_path):
             print(f"{RED}❌ Error: Compose file '{compose_path}' not found.{RESET}")
             return
+        compose_env_files = get_compose_env_files(agent)
+        if compose_env_files is False:
+            return
+        compose_environment = get_compose_environment(agent)
+        if compose_environment is False:
+            return
         print(f"{RED}🛑 Stopping native Docker Compose stack from '{compose_path}'...{RESET}")
         compose_bin = get_compose_bin()
-            
-        res = subprocess.run([compose_bin, "-f", compose_path, "down"])
+        compose_cmd = [compose_bin]
+        for compose_env_file in compose_env_files:
+            compose_cmd += ["--env-file", compose_env_file]
+        res = subprocess.run([*compose_cmd, "-f", compose_path, "down"], env=compose_environment)
         if res.returncode == 0:
             print(f"🧹 {GREEN}Docker Compose stack successfully stopped and removed!{RESET}")
         else:
@@ -906,6 +1264,20 @@ def do_enter(agent_name):
 
 def do_status():
     settings = load_settings()
+
+    print_header("MULTI-CONTAINER SYSTEM DASHBOARD")
+
+    docker_error = get_docker_unavailable_reason()
+    if docker_error:
+        print(f"{RED}DOCKER UNAVAILABLE{RESET}")
+        print(f"{RED}{docker_error}{RESET}")
+        if "permission denied" in docker_error.lower():
+            print(
+                f"{YELLOW}The current user cannot access the Docker daemon. "
+                "Use an authorized Docker context, rootless Docker, or an explicitly elevated invocation."
+                f"{RESET}"
+            )
+        return False
     
     groupings = {}
     grp_file = get_groupings_path()
@@ -930,8 +1302,6 @@ def do_status():
             grouped_containers[grp] = []
         grouped_containers[grp].append(agent)
         
-    print_header("MULTI-CONTAINER SYSTEM DASHBOARD")
-    
     for grp, grp_containers in grouped_containers.items():
         grp_label = grp.upper()
         print(f"{BOLD}{BLUE}📦 [ {grp_label} GROUP ]{RESET}")
@@ -984,6 +1354,8 @@ def do_status():
             print(f"{BOLD}{name:<15}{RESET} | {container_name:<20} | {status} | {net} | {sudo} | {limits:<10}")
         print()
 
+    return True
+
 def do_edit():
     target = SETTINGS_FILE if os.path.exists(SETTINGS_FILE) else SETTINGS_EXAMPLE_FILE
     editor = os.environ.get("EDITOR")
@@ -997,9 +1369,49 @@ def do_edit():
     print(f"{GREEN}📝 Opening {os.path.basename(target)} in {editor}...{RESET}")
     subprocess.run([editor, target])
 
-def do_logs(agent):
+def do_logs(agent, requested_services=None):
     name = agent.get("name")
     container_name = resolve_container_name(name)
+    compose_path = agent.get("compose_path")
+    if compose_path:
+        compose_path = expand_path(compose_path)
+        if not os.path.exists(compose_path):
+            print(f"{RED}❌ Error: Compose file '{compose_path}' not found.{RESET}")
+            return
+        compose_env_files = get_compose_env_files(agent)
+        if compose_env_files is False:
+            return
+        compose_environment = get_compose_environment(agent)
+        if compose_environment is False:
+            return
+        requested_services = requested_services or agent.get("default_log_services", [])
+        if not isinstance(requested_services, list) or any(
+            not isinstance(service, str) or not service for service in requested_services
+        ):
+            print(f"{RED}❌ Error: requested Compose log services must be non-empty names.{RESET}")
+            return
+        allowed_services = agent.get("log_services", [])
+        if not isinstance(allowed_services, list) or any(
+            service not in allowed_services for service in requested_services
+        ):
+            print(f"{RED}❌ Error: one or more requested log services are not declared for '{name}'.{RESET}")
+            return
+        compose_bin = get_compose_bin()
+        compose_cmd = [compose_bin]
+        for compose_env_file in compose_env_files:
+            compose_cmd += ["--env-file", compose_env_file]
+        print(
+            f"{GREEN}📋 Streaming Compose logs for '{name}' services "
+            f"{', '.join(requested_services)} (Ctrl+C to exit)...{RESET}"
+        )
+        try:
+            subprocess.run(
+                [*compose_cmd, "-f", compose_path, "logs", "-f", "--tail", "40", *requested_services],
+                env=compose_environment,
+            )
+        except KeyboardInterrupt:
+            print(f"\n{YELLOW}🛑 Stopped streaming logs.{RESET}")
+        return
     print(f"{GREEN}📋 Streaming logs for container '{container_name}' (Ctrl+C to exit)...{RESET}")
     try:
         subprocess.run(["docker", "logs", "-f", container_name])
@@ -1134,16 +1546,23 @@ def main():
         cmd = sys.argv[1].lower()
         
         if cmd in ["status", "ps", "dashboard"]:
-            do_status()
-            sys.exit(0)
+            sys.exit(0 if do_status() else 1)
         elif cmd == "edit":
             do_edit()
             sys.exit(0)
+        elif cmd == "in":
+            sys.exit(do_in(sys.argv[2:]))
         elif cmd in ["help", "-h", "--help"]:
             pass
         else:
             settings = load_settings()
-            target_containers, is_bulk = resolve_targets(sys.argv[2:], settings)
+            request_args = sys.argv[2:]
+            log_services = []
+            if cmd == "logs" and request_args:
+                target_containers, is_bulk = resolve_targets(request_args[:1], settings)
+                log_services = request_args[1:]
+            else:
+                target_containers, is_bulk = resolve_targets(request_args, settings)
             
             if cmd in ["start", "up", "rebuild"]:
                 errors = lifecycle_action_validator.validate_all_settings(settings)
@@ -1158,7 +1577,18 @@ def main():
 
             if cmd in ["start", "up", "stop", "down", "rebuild", "logs", "explain"]:
                 if cmd in ["start", "up", "rebuild"]:
-                    do_build()
+                    # Compose targets build their own declared images. Avoid an
+                    # unrelated generic agent-sandbox image build when the
+                    # selected operation contains only Compose targets.
+                    selected_agents = [
+                        get_container_config(settings, target_name)
+                        for target_name in target_containers
+                    ]
+                    if any(
+                        agent is not None and not agent.get("compose_path")
+                        for agent in selected_agents
+                    ):
+                        do_build()
                     
                 if cmd == "explain":
                     do_explain(settings, target_containers)
@@ -1178,7 +1608,7 @@ def main():
                         stop_agent(agent)
                         start_agent(agent)
                     elif cmd == "logs":
-                        do_logs(agent)
+                        do_logs(agent, log_services)
                 sys.exit(0)
                 
             elif cmd in ["enter", "shell"]:
@@ -1192,6 +1622,7 @@ def main():
 
     print_header("SANDBOX MANAGEMENT COMMANDS")
     print(f"Usage: {BOLD}sandbox <command> [target_expression]{RESET}\n")
+    print(f"       {BOLD}sandbox in c <container> [<open|run> <selector> [args...]]{RESET}\n")
     print("Target Expressions can be:")
     print(f"  {BOLD}name{RESET}                   A single container name (e.g. 'dev-sandbox')")
     print(f"  {BOLD}\\* / '*'{RESET}              All configured containers (e.g. '\\*' or '*')")
@@ -1204,8 +1635,9 @@ def main():
     print(f"  {BOLD}stop [target]{RESET}        Stop matched system container(s)")
     print(f"  {BOLD}enter [name]{RESET}         Log into a specific container's interactive shell")
     print(f"  {BOLD}rebuild [target]{RESET}     Stop, rebuild Docker images, and restart container(s)")
-    print(f"  {BOLD}logs [target]{RESET}        Stream live outputs for matched container(s)")
+    print(f"  {BOLD}logs <target> [service]{RESET}  Stream declared container or Compose service logs")
     print(f"  {BOLD}explain [target]{RESET}     Visualize the resolved lifecycle plan for container(s)")
+    print(f"  {BOLD}in c ...{RESET}             List or call a container's configured commands")
     print(f"  {BOLD}edit{RESET}                 Open the containers_settings.json configuration file")
     print(f"  {BOLD}help{RESET}                 Print this help reference sheet\n")
 

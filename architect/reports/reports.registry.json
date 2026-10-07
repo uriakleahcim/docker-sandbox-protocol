@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-30T19:16:10Z",
+  "reports": [
+    {
+      "id": "redundant-code-inspection-2026-09-30-191610",
+      "kind": "redundant-code-inspection",
+      "title": "Redundant / Unnecessary Code Inspection Report",
+      "path": "architect/reports/redundant-code-inspection-2026-09-30-191610.md",
+      "status": "reported",
+      "createdAt": "2026-09-30T19:16:10Z",
+      "updatedAt": "2026-09-30T19:16:10Z",
+      "summary": {
+        "totalFindings": 11,
+        "safeRemovals": 3,
+        "safeInlineCandidates": 0,
+        "consolidationCandidates": 1,
+        "lookupCacheCandidates": 0,
+        "refactorCandidates": 7,
+        "architectDecisionRequired": 0,
+        "unknownUsageFindings": 0
+      },
+      "relatedArchitectEntries": [],
+      "supersedes": [],
+      "supersededBy": null,
+      "events": [
+        {
+          "at": "2026-09-30T19:16:10Z",
+          "type": "REPORT_CREATED",
+          "note": "Initial redundant / unnecessary code inspection report created."
+        }
+      ]
+    }
+  ]
+}

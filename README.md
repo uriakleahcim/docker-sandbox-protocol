@@ -58,6 +58,7 @@ graph TD
 - **⚙️ Declarative Lifecycle Action Pipeline:** Validates action schemas against `lifecycle_action_registry.json` across 5 phases: `host_prepare`, `image_prepare`, `container_startup`, `healthcheck`, and `shutdown`.
 - **📦 Semver Presets Dependency Engine:** Declare requirements like `llama-server ~1.0` or `nodejs >= 18` directly in JSON; the orchestrator resolves versions and layers custom Docker images on the fly.
 - **🧩 Docker Compose Delegation:** Seamlessly orchestrates native `docker-compose.yml` stacks (e.g., Nextcloud, databases, microservices) alongside unprivileged developer sandboxes.
+- **🔐 Ordered Compose Environment Files:** Compose targets can load credential and runtime wrapper files only for the Compose subprocess through `compose_env_files`, without persisting credential values in the active inventory.
 - **🏷️ Logical Groupings & Bulk Orchestration:** Target individual containers, defined groups (`sandbox start g development`), or all sandboxes at once (`sandbox start *`).
 - **💻 Portable & Machine-Agnostic:** Designed with dynamic path resolution and sample configurations (`*.example.json`) ready to clone and run on any Linux distribution.
 
@@ -67,7 +68,7 @@ graph TD
 
 ### 1. Prerequisites
 - **Linux** (Ubuntu 20.04/22.04/24.04, Debian, Fedora, Arch, etc.)
-- **Docker Engine** (with current user in the `docker` group)
+- **Docker Engine** through a rootless context (preferred) or another explicitly authorized context
 - **Python 3.8+**
 
 ### 2. Clone & Install
@@ -105,6 +106,7 @@ The unified `sandbox` CLI manages all containers and groups:
 | `stop` | `sandbox stop [target]` | Runs shutdown hooks, stops, and removes matched container(s). |
 | `rebuild` | `sandbox rebuild [target]` | Rebuilds Docker images from presets and restarts container(s). |
 | `enter` | `sandbox enter [name]` | Opens an interactive bash shell session inside the target container. |
+| `in c` | `sandbox in c <name> [<open\|run> <selector> [args...]]` | Lists or calls configured commands for one container. Use `.` for that operation's default. |
 | `explain` | `sandbox explain [target]` | Validates schema and prints the resolved lifecycle action execution plan. |
 | `logs` | `sandbox logs [target]` | Streams live stdout/stderr container logs in real time. |
 | `edit` | `sandbox edit` | Opens `containers_settings.json` in your preferred editor (`$EDITOR` / VS Code). |
@@ -143,7 +145,10 @@ Defines container limits, volumes, network access, and lifecycle hooks:
     "container_access": ["*"]
   },
   "security": {
-    "allow_sudo": true
+    "allow_sudo": false,
+    "run_as_user": "1001:1001",
+    "cap_drop": ["ALL"],
+    "no_new_privileges": true
   },
   "lifecycle": {
     "host_prepare": [
@@ -164,6 +169,80 @@ Defines container limits, volumes, network access, and lifecycle hooks:
   }
 }
 ```
+
+`run_as_user` applies Docker's runtime user override. Use an identity that the
+image supports and ensure its writable mounts have matching ownership.
+`cap_drop` and `no_new_privileges` map to Docker's `--cap-drop` and
+`--security-opt no-new-privileges=true` controls.
+
+To pin the harness to a dedicated Docker context without changing the user's
+global Docker context, set `SANDBOX_DOCKER_CONTEXT`:
+
+```bash
+SANDBOX_DOCKER_CONTEXT=sandbox-rootless sandbox status
+```
+
+The selected context is inherited by Docker commands launched from lifecycle
+scripts. The context and its daemon must already exist; the harness does not
+install or start Docker.
+
+#### Configured container commands
+
+Each container may expose named host targets through `open` and direct container
+processes through `run`:
+
+```json
+"commands": {
+  "open": {
+    "default": {
+      "target": "home",
+      "args": [],
+      "allow_user_args": false
+    },
+    "targets": {
+      "home": {
+        "type": "url",
+        "value": "http://127.0.0.1:18080",
+        "requires_running": true,
+        "args": [],
+        "allow_args": false
+      }
+    }
+  },
+  "run": {
+    "default": {
+      "function": "search",
+      "args": ["--format", "json"],
+      "allow_user_args": false
+    },
+    "functions": {
+      "search": {
+        "argv": ["python3", "/app/search.py"],
+        "args": [],
+        "allow_args": true
+      }
+    }
+  }
+}
+```
+
+```bash
+sandbox in c searxng
+sandbox in c searxng open .
+sandbox in c searxng run .
+sandbox in c searxng run search "query text"
+```
+
+Calling only the container name prints its available `open` and `run` selectors,
+their default mappings, and whether they accept caller arguments. This catalog
+does not require Docker access.
+
+The `.` selector resolves the advanced `default` object. Its configured `args`
+are appended automatically, while `allow_user_args: false` rejects extra caller
+arguments. Named functions accept caller arguments only when their `allow_args`
+value is true. `run` executes the configured `argv` directly through
+`docker exec` without a shell. `open` accepts only configured HTTP(S) URLs or
+existing host files and launches them with `xdg-open`.
 
 ### 2. Network Isolation Postures
 Configure `network` in `containers_settings.json` to enforce isolation:
