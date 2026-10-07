@@ -2,159 +2,281 @@
   "version": 1,
   "containers": [
     {
-      "name": "dev-sandbox",
+      "name": "searxng",
       "enabled": true,
-      "cpu_limit": 4.0,
-      "memory_limit": "8g",
-      "workspace_path": "~/sandbox/workspace/dev",
-      "scratch_path": "~/sandbox/scratch/dev",
+      "image": "docker.io/searxng/searxng:latest",
+      "cpu_limit": 2.0,
+      "memory_limit": "2g",
+      "volumes": [
+        "/home/uriak/sandbox/groups/agent-services/searxng/config:/etc/searxng:ro",
+        "/home/uriak/sandbox/groups/agent-services/searxng/cache:/var/cache/searxng:rw"
+      ],
+      "environment": {
+        "SEARXNG_BASE_URL": "http://127.0.0.1:18080/",
+        "FORCE_OWNERSHIP": "false"
+      },
       "network": {
         "host_access": {
           "enabled": true,
-          "allowed_ports": [3000, 8080],
+          "allowed_ports": ["18080:8080"],
           "allowed_hosts": ["host.docker.internal"],
-          "published_port_scope": "public"
+          "published_port_scope": "loopback"
         },
         "external_access": ["*"],
         "container_access": ["*"]
       },
       "security": {
-        "allow_sudo": true,
-        "allow_google_auth": false
+        "allow_sudo": false,
+        "allow_google_auth": false,
+        "run_as_user": "977:977",
+        "cap_drop": ["ALL"],
+        "no_new_privileges": true
+      },
+      "commands": {
+        "open": {
+          "default": {
+            "target": "home",
+            "args": [],
+            "allow_user_args": false
+          },
+          "targets": {
+            "home": {
+              "type": "url",
+              "value": "http://127.0.0.1:18080",
+              "requires_running": true,
+              "args": [],
+              "allow_args": false
+            }
+          }
+        },
+        "run": {
+          "default": {
+            "function": "http_get",
+            "args": ["http://127.0.0.1:8080/config"],
+            "allow_user_args": false
+          },
+          "functions": {
+            "http_get": {
+              "argv": [
+                "/usr/local/searxng/.venv/bin/python3",
+                "-c",
+                "import sys, urllib.request; response = urllib.request.urlopen(sys.argv[1], timeout=10); print(response.status)"
+              ],
+              "args": [],
+              "allow_args": true
+            }
+          }
+        }
       },
       "toggle_logging": true,
+      "runstate_documentation": {
+        "startup_owner": "official image entrypoint",
+        "entrypoint": "/usr/local/searxng/entrypoint.sh",
+        "restart_policy": "unless-stopped",
+        "readiness_endpoint": "http://127.0.0.1:18080/config",
+        "start_sequence": [
+          "Validate all declared lifecycle actions before boot.",
+          "Invoke the harness core agent-sandbox build; this is existing global start behavior even though SearXNG uses its declared external image.",
+          "When SearXNG is not already running, prepare its persistent config and cache directories and require settings.yml.",
+          "Start the existing stopped container or create it from docker.io/searxng/searxng:latest with the declared mounts, limits, environment, and loopback port.",
+          "Let the official image entrypoint start SearXNG; do not add a duplicate container_startup command.",
+          "Verify the readiness endpoint after the image startup settles; the current lifecycle http_check is intentionally empty because it has no connection-refusal retry and races a cold start.",
+          "Let Docker stop the image normally; no duplicate shutdown command is required."
+        ]
+      },
       "lifecycle": {
         "host_prepare": [
           {
             "@action": "ensure_dir",
-            "path": "~/sandbox/workspace/dev"
+            "path": "/home/uriak/sandbox/groups/agent-services/searxng/config"
           },
           {
             "@action": "ensure_dir",
-            "path": "~/sandbox/scratch/dev"
+            "path": "/home/uriak/sandbox/groups/agent-services/searxng/cache"
+          },
+          {
+            "@action": "require_file",
+            "path": "/home/uriak/sandbox/groups/agent-services/searxng/config/settings.yml"
           }
         ],
+        "image_prepare": [],
         "container_startup": {
           "behavior": "NEVER",
-          "steps": [
-            {
-              "@action": "echo",
-              "lines": [
-                "Development workspace initialized.",
-                "Ready for user connections."
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "restricted-agent",
-      "enabled": true,
-      "cpu_limit": 2.0,
-      "memory_limit": "4g",
-      "workspace_path": "~/sandbox/workspace/restricted",
-      "scratch_path": "~/sandbox/scratch/restricted",
-      "network": {
-        "host_access": {
-          "enabled": true,
-          "allowed_ports": [],
-          "allowed_hosts": ["host.docker.internal"],
-          "published_port_scope": "loopback"
+          "steps": []
         },
-        "external_access": [
-          "*.github.com",
-          "pypi.org",
-          "*.pypi.org"
-        ],
-        "container_access": ["*"]
-      },
-      "security": {
-        "allow_sudo": false,
-        "allow_google_auth": false
-      },
-      "toggle_logging": true,
-      "lifecycle": {
-        "container_startup": {
-          "behavior": "NEVER",
-          "steps": [
-            {
-              "@action": "echo",
-              "lines": [
-                "Restricted agent container initialized with domain egress whitelist."
-              ]
-            }
-          ]
-        }
+        "healthcheck": [],
+        "shutdown": []
       }
     },
     {
-      "name": "ai-service",
+      "name": "ollama",
       "enabled": true,
-      "cpu_limit": 4.0,
-      "memory_limit": "8g",
-      "workspace_path": "~/sandbox/workspace/ai",
-      "scratch_path": "~/sandbox/scratch/ai",
-      "requirements": ["llama-server ~1.0"],
-      "network": {
-        "host_access": {
-          "enabled": true,
-          "allowed_ports": [8080],
-          "allowed_hosts": ["host.docker.internal"],
-          "published_port_scope": "loopback"
-        },
-        "external_access": [],
-        "container_access": ["*"]
-      },
-      "security": {
-        "allow_sudo": false,
-        "allow_google_auth": false
-      },
-      "toggle_logging": true,
-      "lifecycle": {
-        "container_startup": {
-          "behavior": "ALWAYS",
-          "steps": [
-            {
-              "@action": "echo",
-              "lines": [
-                "Starting local AI inference service on port 8080..."
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "web-stack",
-      "enabled": false,
-      "compose_path": "~/sandbox/compose/docker-compose.yml",
+      "compose_path": "/home/uriak/Work/AppSource/com.github/docker-sandbox-protocol/services/ollama/docker-compose.yml",
       "cpu_limit": 2.0,
-      "memory_limit": "4g",
-      "workspace_path": "~/sandbox/workspace/web-stack",
-      "scratch_path": "~/sandbox/scratch/web-stack",
+      "memory_limit": "6g",
+      "environment": {
+        "OLLAMA_RUNTIME_ROOT": "/home/uriak/sandbox/groups/agent-models/ollama"
+      },
+      "log_services": ["ollama", "ollama-model-init"],
+      "default_log_services": ["ollama"],
       "network": {
         "host_access": {
           "enabled": true,
-          "allowed_ports": [80, 443],
-          "allowed_hosts": ["host.docker.internal"],
-          "published_port_scope": "public"
+          "allowed_ports": ["127.0.0.1:11434:11434"],
+          "published_port_scope": "loopback"
         },
         "external_access": ["*"],
         "container_access": ["*"]
       },
       "security": {
         "allow_sudo": false,
-        "allow_google_auth": false
+        "allow_google_auth": false,
+        "cap_drop": ["ALL"],
+        "no_new_privileges": true
       },
-      "toggle_logging": true,
+      "runstate_documentation": {
+        "startup_owner": "shared Ollama Docker Compose stack",
+        "restart_policy": "unless-stopped",
+        "readiness_endpoint": "http://127.0.0.1:11434/api/tags",
+        "start_sequence": [
+          "Create the shared model directory under agent-models.",
+          "Start Ollama with that directory mounted as /root/.ollama in the container.",
+          "Expose the API only on 127.0.0.1:11434.",
+          "Wait for the Ollama health check, then idempotently ensure the shared fixed model profile."
+        ]
+      },
       "lifecycle": {
         "host_prepare": [
           {
             "@action": "ensure_dir",
-            "path": "~/sandbox/data/web"
+            "path": "/home/uriak/sandbox/groups/agent-models/ollama"
           }
-        ]
+        ],
+        "image_prepare": [],
+        "container_startup": {
+          "behavior": "NEVER",
+          "steps": []
+        },
+        "healthcheck": [],
+        "shutdown": []
+      }
+    },
+    {
+      "name": "muckscraper",
+      "enabled": true,
+      "compose_path": "/home/uriak/Work/AppSource/uriakleahcim/bias-graph-feed/docker-compose.yml",
+      "compose_env_files": [
+        "/home/uriak/Work/AppSource/aegis/Users/uriak/.env",
+        "/home/uriak/sandbox/groups/agent-services/muckscraper/config/secrets.env"
+      ],
+      "cpu_limit": 2.0,
+      "memory_limit": "6g",
+      "environment": {
+        "COMPOSE_PROJECT_NAME": "muckscraper",
+        "MUCKSCRAPER_RUNTIME_ROOT": "/home/uriak/sandbox/groups/agent-services/muckscraper",
+        "MUCKSCRAPER_DOCKER_SOCKET": "/run/user/1000/docker.sock",
+        "OLLAMA_HOST": "http://ollama:11434"
+      },
+      "log_services": [
+        "app",
+        "scheduler",
+        "database-bootstrap",
+        "postgres",
+        "meilisearch",
+        "docker-restart-proxy"
+      ],
+      "default_log_services": ["scheduler"],
+      "network": {
+        "host_access": {
+          "enabled": true,
+          "allowed_ports": ["127.0.0.1:5000:5000"],
+          "allowed_hosts": ["host.docker.internal"],
+          "published_port_scope": "loopback"
+        },
+        "external_access": ["*"],
+        "container_access": ["*"]
+      },
+      "security": {
+        "allow_sudo": false,
+        "allow_google_auth": false,
+        "cap_drop": ["ALL"],
+        "no_new_privileges": true
+      },
+      "commands": {
+        "open": {
+          "default": {
+            "target": "api",
+            "args": [],
+            "allow_user_args": false
+          },
+          "targets": {
+            "api": {
+              "type": "url",
+              "value": "http://127.0.0.1:5000/api/v1/health",
+              "requires_running": true,
+              "args": [],
+              "allow_args": false,
+              "description": "Bias Graph Feed Agent Bar health endpoint"
+            }
+          }
+        },
+        "run": {
+          "functions": {
+            "smoke-test": {
+              "argv": ["python", "-m", "news_fetcher.smoke_test"],
+              "args": [],
+              "allow_args": false,
+              "description": "Run the bounded Bias Graph Feed ingestion smoke profile"
+            }
+          }
+        }
+      },
+      "runstate_documentation": {
+        "startup_owner": "Bias Graph Feed Docker Compose stack",
+        "restart_policy": "unless-stopped",
+        "readiness_endpoint": "http://127.0.0.1:5000/api/v1/health",
+      "start_sequence": [
+        "Require the Aegis credential file and sandbox-owned secrets.env wrapper before modifying runtime state.",
+        "Load the external credential file and then the Sandbox wrapper only for the Compose subprocess; do not persist provider key values in the Sandbox configuration.",
+          "Create persistent PostgreSQL and Meilisearch directories below the agent-services runtime root.",
+          "Delegate startup to the source checkout's Docker Compose stack with the Sandbox runtime root and the selected rootless Docker socket.",
+          "Wait for PostgreSQL health and run the idempotent database-bootstrap lifecycle service before the API or scheduler starts.",
+          "Use the separately managed shared Ollama endpoint through the internal agent-services Docker network.",
+          "Expose only the API on 127.0.0.1:5000; databases and the restart proxy remain internal."
+        ],
+        "limits_note": "Compose delegation currently does not enforce every declared Sandbox limit, network, or security field; the Compose file is the runtime authority."
+      },
+      "lifecycle": {
+      "host_prepare": [
+        {
+          "@action": "require_file",
+          "path": "/home/uriak/Work/AppSource/aegis/Users/uriak/.env"
+        },
+        {
+          "@action": "require_file",
+            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/config/secrets.env"
+          },
+          {
+            "@action": "ensure_dir",
+            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/config",
+            "mode": "0700"
+          },
+          {
+            "@action": "ensure_dir",
+            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/postgres"
+          },
+          {
+            "@action": "ensure_dir",
+            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/meilisearch"
+          }
+        ],
+        "image_prepare": [],
+        "container_startup": {
+          "behavior": "NEVER",
+          "steps": []
+        },
+        "healthcheck": [],
+        "shutdown": []
       }
     }
   ]
