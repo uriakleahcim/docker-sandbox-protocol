@@ -108,6 +108,23 @@ class SandboxSDKTests(unittest.TestCase):
         self.assertEqual(targets, ["c1", "c2"])
         self.assertTrue(is_bulk)
 
+    def test_config_directory_selects_its_parent_as_root(self):
+        config = SandboxConfig(config_dir=os.path.join(REPO_ROOT, "config"))
+        self.assertEqual(config.root_dir, REPO_ROOT)
+        self.assertEqual(config.config_dir, os.path.join(REPO_ROOT, "config"))
+
+    def test_docker_context_is_scoped_to_child_processes(self):
+        before = os.environ.get("DOCKER_CONTEXT")
+        config = SandboxConfig(root_dir=REPO_ROOT, docker_context="sdk-test-context")
+        self.assertEqual(config.docker_environment()["DOCKER_CONTEXT"], "sdk-test-context")
+        self.assertEqual(os.environ.get("DOCKER_CONTEXT"), before)
+
+    def test_compose_environment_carries_the_selected_docker_context(self):
+        config = SandboxConfig(root_dir=REPO_ROOT, docker_context="sdk-test-context")
+        env = config.get_compose_environment({"name": "example", "environment": {"EXAMPLE": "1"}})
+        self.assertEqual(env["DOCKER_CONTEXT"], "sdk-test-context")
+        self.assertEqual(env["EXAMPLE"], "1")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,7 +15,15 @@ def expand_path(p: str) -> str:
 
 
 class SandboxConfig:
-    """Manages paths, settings, groupings, and registry for Docker Sandbox Protocol."""
+    """Explicit paths and loaders for one Docker Sandbox Protocol instance.
+
+    Package installation never owns an orchestration instance.  A consumer must
+    select one through ``root_dir``/``config_dir`` or the corresponding
+    ``SANDBOX_*`` environment variables.  Source-checkout use remains
+    convenient: when the package is imported from this repository its root is
+    discovered only if the adjacent ``config`` and ``scripts`` directories
+    exist.
+    """
 
     def __init__(
         self,
@@ -32,20 +40,29 @@ class SandboxConfig:
         proxy_rules_file: Optional[str] = None,
         docker_context: Optional[str] = None,
     ):
-        if root_dir is None:
-            env_root = os.environ.get("SANDBOX_ROOT")
-            if env_root:
-                self.root_dir = os.path.abspath(env_root)
-            else:
-                # Default to repository root (two levels above src/docker_sandbox/config.py)
-                self.root_dir = os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-                )
+        selected_config_dir = config_dir or os.environ.get("SANDBOX_CONFIG_DIR")
+        selected_root_dir = root_dir or os.environ.get("SANDBOX_ROOT")
+        if selected_root_dir:
+            self.root_dir = os.path.abspath(selected_root_dir)
+        elif selected_config_dir:
+            # A configuration directory is conventionally <root>/config.
+            self.root_dir = os.path.dirname(os.path.abspath(selected_config_dir))
         else:
-            self.root_dir = os.path.abspath(root_dir)
+            source_root = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            )
+            if not (
+                os.path.isdir(os.path.join(source_root, "config"))
+                and os.path.isdir(os.path.join(source_root, "scripts"))
+            ):
+                raise ConfigError(
+                    "No Sandbox configuration was selected. Pass SandboxConfig("
+                    "config_dir=...), set SANDBOX_CONFIG_DIR, or set SANDBOX_ROOT."
+                )
+            self.root_dir = source_root
 
         self.config_dir = os.path.abspath(
-            config_dir or os.environ.get("SANDBOX_CONFIG_DIR") or os.path.join(self.root_dir, "config")
+            selected_config_dir or os.path.join(self.root_dir, "config")
         )
         self.settings_file = os.path.abspath(
             settings_file or os.environ.get("SANDBOX_SETTINGS_FILE") or os.path.join(self.config_dir, "containers_settings.json")
@@ -75,9 +92,17 @@ class SandboxConfig:
             proxy_rules_file or os.environ.get("SANDBOX_PROXY_RULES") or os.path.join(self.runtime_dir, "sandbox_proxy_rules.json")
         )
 
+        # Keep process-global environment untouched. Callers that run Docker
+        # commands can request this environment explicitly with
+        # ``docker_environment``.
         self.docker_context = docker_context or os.environ.get("SANDBOX_DOCKER_CONTEXT")
+
+    def docker_environment(self) -> dict[str, str]:
+        """Return a child-process environment for this configured Docker context."""
+        environment = os.environ.copy()
         if self.docker_context:
-            os.environ["DOCKER_CONTEXT"] = self.docker_context
+            environment["DOCKER_CONTEXT"] = self.docker_context
+        return environment
 
     def get_groupings_path(self) -> Optional[str]:
         if os.path.exists(self.groupings_file):
@@ -208,7 +233,7 @@ class SandboxConfig:
         declared = agent.get("environment", {})
         if not isinstance(declared, dict):
             raise ConfigError(f"environment for '{agent.get('name')}' must be an object.")
-        env = os.environ.copy()
+        env = self.docker_environment()
         env.update({str(k): str(v) for k, v in declared.items()})
         return env
 

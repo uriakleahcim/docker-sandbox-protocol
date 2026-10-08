@@ -1,7 +1,7 @@
 # 🛡️ Docker Sandbox Protocol
 
 [![Docker](https://img.shields.io/badge/Docker-20.10+-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://kernel.org)
 
@@ -69,7 +69,7 @@ graph TD
 ### 1. Prerequisites
 - **Linux** (Ubuntu 20.04/22.04/24.04, Debian, Fedora, Arch, etc.)
 - **Docker Engine** through a rootless context (preferred) or another explicitly authorized context
-- **Python 3.8+**
+- **Python 3.9+**
 
 ### 2. Clone & Install
 ```bash
@@ -350,6 +350,19 @@ Installable directly in editable mode:
 ```bash
 pip install -e .
 ```
+
+An installed package deliberately does not guess which Sandbox instance it
+should control. Bind it to the selected instance before calling the SDK or its
+console command:
+
+```bash
+export SANDBOX_ROOT=/path/to/docker-sandbox-protocol
+export SANDBOX_CONFIG_DIR="$SANDBOX_ROOT/config"
+sandbox status
+```
+
+Programmatic consumers should pass the same location explicitly. The SDK never
+discovers a `sandbox` executable from `PATH`.
 
 ---
 

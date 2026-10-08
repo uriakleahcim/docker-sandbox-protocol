@@ -49,6 +49,7 @@ class Sandbox:
                 ["docker", "info", "--format", "{{.ServerVersion}}"],
                 capture_output=True,
                 text=True,
+                env=self.config.docker_environment(),
             )
         except FileNotFoundError:
             return "Docker CLI is not installed or is not available in PATH."
@@ -69,6 +70,7 @@ class Sandbox:
             ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
             capture_output=True,
             text=True,
+            env=self.config.docker_environment(),
         )
         return res.returncode == 0 and res.stdout.strip() == "true"
 
@@ -77,6 +79,7 @@ class Sandbox:
             ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
             capture_output=True,
             text=True,
+            env=self.config.docker_environment(),
         )
         return res.returncode == 0
 
@@ -85,6 +88,7 @@ class Sandbox:
             ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container_name],
             capture_output=True,
             text=True,
+            env=self.config.docker_environment(),
         )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
