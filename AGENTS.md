@@ -29,8 +29,10 @@ Read both this file and the runtime `AGENTS.md` before moving mounts, persistent
 ```text
 bin/sandbox
   -> launcher and environment setup
+src/docker_sandbox/
+  -> Core Python SDK framework (client, models, config, lifecycle, exceptions, cli)
 config/containers_cli.py
-  -> CLI orchestration, target resolution, Docker execution, status
+  -> Backward-compatibility CLI orchestration adapter
 config/containers_settings.json
   -> ignored active local container inventory
 config/container_groupings.json
@@ -38,7 +40,7 @@ config/container_groupings.json
 config/*.example.json
   -> tracked reusable templates, not the host's live inventory
 config/lifecycle_action_validator.py
-  -> lifecycle schema validation
+  -> Backward-compatibility lifecycle schema validation adapter
 config/lifecycle_action_registry.json
   -> allowed lifecycle actions and arguments
 scripts/
@@ -140,7 +142,8 @@ sandbox explain '<target>'
 For Python changes:
 
 ```bash
-python3 -m py_compile config/containers_cli.py config/lifecycle_action_validator.py
+python3 -m py_compile config/containers_cli.py config/lifecycle_action_validator.py src/docker_sandbox/*.py
+python3 -m unittest discover -s tests
 ```
 
 Also run, as applicable:

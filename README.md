@@ -310,22 +310,78 @@ For production host hardening where agents run directly under a designated host 
 
 ---
 
+## 🐍 Python SDK Framework
+
+Docker Sandbox Protocol provides an importable, typed Python SDK for direct programmatic orchestration:
+
+```python
+from docker_sandbox import Sandbox, SandboxConfig
+
+# Initialize client (auto-discovers configuration and paths)
+sandbox = Sandbox()
+
+# 1. Inspect status across all container groups
+report = sandbox.status()
+if report.docker_available:
+    for group_name, containers in report.groups.items():
+        for c in containers:
+            print(f"{c.name}: {c.raw_status} (Network: {c.network_mode})")
+
+# 2. Start a container or grouping
+results = sandbox.start("searxng")
+for res in results:
+    print(f"[{res.target}] {res.action}: success={res.success} ({res.message})")
+
+# 3. Validate lifecycle execution plans
+plans = sandbox.explain("bias-graph-feed")
+plan = plans["bias-graph-feed"]
+if plan.is_valid:
+    print("Lifecycle plan is valid. Steps:", plan.phases)
+
+# 4. Resolve configured command invocations
+cmd = sandbox.in_cmd("searxng", operation="run", selector=".", user_args=[])
+print(f"Command argv: {cmd.argv}")
+
+# 5. Stop containers
+sandbox.stop("searxng")
+```
+
+Installable directly in editable mode:
+```bash
+pip install -e .
+```
+
+---
+
 ## 📂 Repository Layout
 
 ```txt
 docker-sandbox-protocol/
 ├── bin/
 │   └── sandbox                          # Command-line launcher wrapper
+├── src/
+│   └── docker_sandbox/                  # Python SDK framework package
+│       ├── __init__.py                  # Public exports (Sandbox, models, exceptions)
+│       ├── client.py                    # Core Sandbox orchestration client
+│       ├── config.py                    # Path resolution and JSON loaders
+│       ├── exceptions.py                # Structured exception classes
+│       ├── lifecycle.py                 # Multi-phase lifecycle schema validator
+│       ├── models.py                    # Typed result dataclasses (StatusReport, etc.)
+│       └── cli.py                       # Formatted terminal UI and command handlers
 ├── config/
 │   ├── Dockerfile                       # Base unprivileged agent container image
-│   ├── containers_cli.py                # Core Python orchestrator engine
+│   ├── containers_cli.py                # Backward-compatibility CLI adapter
 │   ├── proxy.py                         # Egress filtering HTTP/CONNECT socket proxy
-│   ├── lifecycle_action_validator.py    # Schema validator for lifecycle hooks
+│   ├── lifecycle_action_validator.py    # Backward-compatibility validator adapter
 │   ├── lifecycle_action_registry.json   # Action schema specifications
 │   ├── containers_settings.example.json # Sample container definitions
 │   ├── container_groupings.example.json # Sample container grouping classifications
 │   ├── agent_secrets_vault.example.json # Sample credentials vault template
 │   └── containers_permissions.example.json # Sample POSIX ACL policy
+├── pyproject.toml                       # Package build specification
+├── tests/                               # Unit test suite
+│   ├── test_containers_cli.py
+│   └── test_sdk.py
 ├── docs/
 │   ├── SPECIFICATION.md                 # Complete security & architecture specification
 │   └── LIFECYCLE_ACTIONS.md             # Detailed guide to lifecycle action schemas
