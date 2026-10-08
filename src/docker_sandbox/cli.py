@@ -6,12 +6,10 @@ import sys
 from typing import Optional
 
 from docker_sandbox.client import Sandbox
-from docker_sandbox.config import SandboxConfig, expand_path
+from docker_sandbox.config import expand_path
 from docker_sandbox.exceptions import (
     ConfigError,
     ConfiguredCommandError,
-    LifecycleExecutionError,
-    SandboxError,
     TargetNotFoundError,
 )
 from docker_sandbox.lifecycle import validate_all_settings

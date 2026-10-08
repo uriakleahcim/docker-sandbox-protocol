@@ -11,13 +11,11 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from docker_sandbox import (
-    ConfigError,
     ConfiguredCommandError,
     Sandbox,
     SandboxConfig,
     StatusReport,
     TargetNotFoundError,
-    validate_agent_lifecycle,
 )
 
 

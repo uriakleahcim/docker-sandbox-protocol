@@ -12,16 +12,12 @@ from docker_sandbox.config import SandboxConfig, expand_path
 from docker_sandbox.exceptions import (
     ConfigError,
     ConfiguredCommandError,
-    DockerUnavailableError,
-    LifecycleError,
     LifecycleExecutionError,
-    SandboxError,
     TargetNotFoundError,
 )
 from docker_sandbox.lifecycle import (
     normalize_lifecycle,
     validate_agent_lifecycle,
-    validate_all_settings,
 )
 from docker_sandbox.models import (
     ActionResult,
@@ -148,6 +144,10 @@ class Sandbox:
             else:
                 allow_host = bool(host_access)
         else:
+            # Legacy postures may set `network` to a bare boolean or list; normalize
+            # non-dict values so `.get()` below never raises AttributeError.
+            if not isinstance(network_config, dict):
+                network_config = {}
             allow_host = network_config.get("allow_host", agent.get("toggle_network", True))
             allow_external = network_config.get("allow_external", ["*"] if agent.get("toggle_network", True) else [])
             allow_containers = network_config.get("allow_containers", ["*"])
@@ -546,7 +546,7 @@ esac
 
         startup_script_lines = [
             "#!/bin/bash",
-            f"echo \"[$(date '+%Y-%m-%d %H:%M:%S')] --- Startup Script Execution Started ---\"",
+            "echo \"[$(date '+%Y-%m-%d %H:%M:%S')] --- Startup Script Execution Started ---\"",
         ]
         if commands:
             for cmd in commands:
@@ -555,7 +555,7 @@ esac
         else:
             startup_script_lines.append("echo \"No startup commands configured.\"")
 
-        startup_script_lines.append(f"echo \"[$(date '+%Y-%m-%d %H:%M:%S')] --- Startup Script Execution Completed ---\"")
+        startup_script_lines.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] --- Startup Script Execution Completed ---\"")
         startup_script_content = "\n".join(startup_script_lines) + "\n"
 
         subprocess.run(["docker", "exec", "-u", "root", "-i", container_name, "sh", "-c", "cat > /usr/local/bin/startup.sh"], input=startup_script_content, text=True)
