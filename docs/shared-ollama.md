@@ -26,7 +26,7 @@ Start it before a consumer:
 sandbox explain ollama
 sandbox start ollama
 sandbox logs ollama ollama-model-init
-sandbox start muckscraper
+sandbox start bias-graph-feed
 ```
 
 On the first start, wait for `ollama-model-init` to complete successfully

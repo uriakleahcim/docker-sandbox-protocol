@@ -162,19 +162,19 @@
       }
     },
     {
-      "name": "muckscraper",
+      "name": "bias-graph-feed",
       "enabled": true,
       "compose_path": "/home/uriak/Work/AppSource/uriakleahcim/bias-graph-feed/docker-compose.yml",
       "compose_env_files": [
         "/home/uriak/Work/AppSource/aegis/Users/uriak/.env",
-        "/home/uriak/sandbox/groups/agent-services/muckscraper/config/secrets.env"
+        "/home/uriak/sandbox/groups/agent-services/bias-graph-feed/config/secrets.env"
       ],
       "cpu_limit": 2.0,
       "memory_limit": "6g",
       "environment": {
-        "COMPOSE_PROJECT_NAME": "muckscraper",
-        "MUCKSCRAPER_RUNTIME_ROOT": "/home/uriak/sandbox/groups/agent-services/muckscraper",
-        "MUCKSCRAPER_DOCKER_SOCKET": "/run/user/1000/docker.sock",
+        "COMPOSE_PROJECT_NAME": "bias-graph-feed",
+        "BIAS_GRAPH_FEED_RUNTIME_ROOT": "/home/uriak/sandbox/groups/agent-services/bias-graph-feed",
+        "BIAS_GRAPH_FEED_DOCKER_SOCKET": "/run/user/1000/docker.sock",
         "OLLAMA_HOST": "http://ollama:11434"
       },
       "log_services": [
@@ -254,20 +254,20 @@
         },
         {
           "@action": "require_file",
-            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/config/secrets.env"
+            "path": "/home/uriak/sandbox/groups/agent-services/bias-graph-feed/config/secrets.env"
           },
           {
             "@action": "ensure_dir",
-            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/config",
+            "path": "/home/uriak/sandbox/groups/agent-services/bias-graph-feed/config",
             "mode": "0700"
           },
           {
             "@action": "ensure_dir",
-            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/postgres"
+            "path": "/home/uriak/sandbox/groups/agent-services/bias-graph-feed/postgres"
           },
           {
             "@action": "ensure_dir",
-            "path": "/home/uriak/sandbox/groups/agent-services/muckscraper/meilisearch"
+            "path": "/home/uriak/sandbox/groups/agent-services/bias-graph-feed/meilisearch"
           }
         ],
         "image_prepare": [],

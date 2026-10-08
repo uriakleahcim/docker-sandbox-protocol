@@ -1,7 +1,7 @@
 {
   "container_groupings": {
     "agent-services": {
-      "containers": ["searxng", "ollama", "muckscraper"],
+      "containers": ["searxng", "ollama", "bias-graph-feed"],
       "default_container": "searxng",
       "naming": {
         "prefix": "",
